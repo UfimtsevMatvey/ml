@@ -14,11 +14,13 @@ def batch_gen(X, y, batch_size=128):
   
     return Variable(torch.FloatTensor(X_batch)), Variable(torch.LongTensor(y_batch))
 
-N, D_in, H, D_out = 64, 2, 200, 2
+N, D_in, H, D_out = 64, 2, 50, 2
 
 # Use the nn package to define our model and loss function.
 two_layer_net = torch.nn.Sequential(
     torch.nn.Linear(D_in, H),
+    torch.nn.ReLU(),
+    torch.nn.Linear(H, H),
     torch.nn.ReLU(),
     torch.nn.Linear(H, D_out),
     torch.nn.Softmax()
@@ -56,7 +58,7 @@ print(two_layer_net.forward(batch_gen(X,Y)[0]))
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
 
 learning_rate = 1e-4
-optimizer = torch.optim.SGD(two_layer_net.parameters(), lr=learning_rate)
+optimizer = torch.optim.Adam(two_layer_net.parameters(), lr=learning_rate)
 
 
 for t in range(10000):
@@ -67,7 +69,7 @@ for t in range(10000):
 
     # loss
     loss = loss_fn(y_pred, y_batch)
-    print('{} {}'.format(t, loss.data))
+    #print('{} {}'.format(t, loss.data))
 
     # ЗАНУЛЯЕМ!
     optimizer.zero_grad()
@@ -100,7 +102,7 @@ plt.scatter(X[:, 0], X[:, 1], c=Y, s=40, cmap=plt.cm.rainbow)
 plt.xlim(xx.min(), xx.max())
 plt.ylim(yy.min(), yy.max())
 
-plt.show();
+plt.show()
 
 y_predicted = two_layer_net(torch.tensor([0,0], dtype=torch.float32))
 print(y_predicted)
