@@ -111,8 +111,8 @@ for j in range(K):
 #plt.show()
 
 #create neural net
-batch_size=1500
-D_in, H1, H2, H3,H4, H5, H6, H7, H8, D_out = 2, 10, 15, 15, 10, 9, 7, 5,10, 2
+batch_size=3500
+D_in, H1, H2, H3,H4, H5, H6, H7, H8, D_out = 2, 10, 25, 25, 15, 13, 10, 10, 7, 2
 net = torch.nn.Sequential(
     torch.nn.Linear(D_in, H1),
     torch.nn.ReLU(),
@@ -128,33 +128,47 @@ net = torch.nn.Sequential(
     torch.nn.ReLU(),
     torch.nn.Linear(H6, H7),
     torch.nn.ReLU(),
-    torch.nn.Linear(H7, D_out),
+    torch.nn.Linear(H7, H8),
+    torch.nn.ReLU(),
+    torch.nn.Linear(H8, D_out),
     torch.nn.ReLU()
 )
 
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
 #loss_fn = loss_function
-Nn = 50
+Nn = 200
 learning_rate = 1e-3
 optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
 losses = []
 loss = 1
-#size = 1000
-#for j in range(Nn):
-    #X_t, Y_t = data_set_gen(X, Y, size)
+size = 200
+"""
+for j in range(Nn):
+    X_t, Y_t = data_set_gen(X, Y, size)
     #print(Y_t)
-    #if(loss > -0.3):
-    #    if(j > 11):
-    #        learning_rate = 1e-5
-    #        if(j > 16):
-    #            learning_rate = 1e-5
-    #            if(j > 380):
-    #                learning_rate = 1e-5
-    #    optimizer = torch.optim.Adam(net.parameters(), lr = learning_rate)
-for t in range(1000):
+    if(loss > 0.65):
+        learning_rate = 1e-2
+    else:
+        learning_rate = 1e-3
+        if(loss < 0.3):
+            learning_rate = 1e-4
+            if(loss < 0.1):
+                learning_rate = 1e-4
+                if(loss < 0.05):
+                    learning_rate = 1e-5
+"""
+optimizer = torch.optim.Adam(net.parameters(), lr = learning_rate)
+for t in range(2000):
+    if(loss > 0.6):
+        learning_rate = 1e-2
+    else:
+        learning_rate = 1e-3
+    if(loss < 0.08):
+        learning_rate = 1e-4
+    if(loss < 0.02):
+        learning_rate = 1e-5
     x_batch, y_batch = batch_gen(X, Y, batch_size)
     y_pred = net(x_batch)
-
     # loss
     loss = loss_fn(y_pred, y_batch)/batch_size
     losses.append(loss.item())
