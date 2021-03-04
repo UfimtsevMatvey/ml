@@ -20,6 +20,7 @@ def get_part_data(data, ratio, A):
 #get data batch
 def batch_gen(X, Y, batch_size):
     idx = np.random.randint(X.shape[0], size=batch_size)
+    #print(idx)
     X_batch = X[idx]
     Y_batch = Y[idx]
     return Variable(torch.FloatTensor(X_batch)), Variable(torch.LongTensor(Y_batch))
@@ -130,31 +131,38 @@ net = torch.nn.Sequential(
     torch.nn.ReLU(),
     torch.nn.Linear(H7, D_out),
     torch.nn.ReLU()
+    #torch.nn.Softmax()
 )
 
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
-#loss_fn = loss_function
+#loss_fn = torch.nn.BCELoss()
 Nn = 50
 learning_rate = 1e-3
 optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
 losses = []
 loss = 1
-#size = 1000
-#for j in range(Nn):
-    #X_t, Y_t = data_set_gen(X, Y, size)
+size = 1000
+"""
+for j in range(Nn):
+    X_t, Y_t = data_set_gen(X, Y, size)
     #print(Y_t)
-    #if(loss > -0.3):
-    #    if(j > 11):
-    #        learning_rate = 1e-5
-    #        if(j > 16):
-    #            learning_rate = 1e-5
-    #            if(j > 380):
-    #                learning_rate = 1e-5
-    #    optimizer = torch.optim.Adam(net.parameters(), lr = learning_rate)
+    if(loss > 0.65):
+        learning_rate = 1e-2
+    else:
+        learning_rate = 1e-3
+        if(loss < 0.3):
+            learning_rate = 1e-4
+            if(loss < 0.1):
+                learning_rate = 1e-5
+                if(loss < 0.05):
+                    learning_rate = 1e-5
+        #optimizer = torch.optim.SGD(net.parameters(), lr = learning_rate)
+        """
 for t in range(1000):
     x_batch, y_batch = batch_gen(X, Y, batch_size)
     y_pred = net(x_batch)
-
+    #print(y_pred)
+    #print(y_batch.reshape(-1,1).float())
     # loss
     loss = loss_fn(y_pred, y_batch)/batch_size
     losses.append(loss.item())
