@@ -130,7 +130,7 @@ net = torch.nn.Sequential(
     torch.nn.Linear(H6, H7),
     torch.nn.ReLU(),
     torch.nn.Linear(H7, D_out),
-    torch.nn.ReLU()
+    #torch.nn.ReLU()
     #torch.nn.Softmax()
 )
 
@@ -140,6 +140,8 @@ Nn = 50
 learning_rate = 1e-3
 optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
 losses = []
+accuracy_test = []
+accuracy_learn = []
 loss = 1
 size = 1000
 """
@@ -158,7 +160,7 @@ for j in range(Nn):
                     learning_rate = 1e-5
         #optimizer = torch.optim.SGD(net.parameters(), lr = learning_rate)
         """
-for t in range(1000):
+for t in range(500):
     x_batch, y_batch = batch_gen(X, Y, batch_size)
     y_pred = net(x_batch)
     #print(y_pred)
@@ -167,9 +169,27 @@ for t in range(1000):
     loss = loss_fn(y_pred, y_batch)/batch_size
     losses.append(loss.item())
 
+    y_predicted_test = net(torch.tensor(X_test, dtype=torch.float32))
+    y_predicted_learn = net(torch.tensor(X, dtype=torch.float32))
+
+    _, predicted_y_test = torch.max(y_predicted_test, 1)
+    _, predicted_y_learn = torch.max(y_predicted_learn, 1)
+
+    Y_test = torch.tensor(Y_test, dtype=torch.float)
+    Y_learn = torch.tensor(Y, dtype=torch.float)
+    accuracy_learn_data = torch.mean((Y_learn == predicted_y_learn).type(torch.float).clone().detach())
+    accuracy_learn.append(accuracy_learn_data.item())
+
+    accuracy_test_data = torch.mean((Y_test == predicted_y_test).type(torch.float).clone().detach())
+    accuracy_test.append(accuracy_test_data.item())
+
+
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+
+
+    
 #    else:
         #learning_rate = 1e-5
         #optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate[j])
@@ -205,7 +225,8 @@ accuracy_traning_data = torch.mean((Y == predicted_y_learn).type(torch.float).cl
 print("Traning accuracy: %.5f" % accuracy_traning_data)
 #print losses
 plt.plot(losses)
-
+plt.plot(accuracy_test)
+plt.plot(accuracy_learn)
 #print(y_predicted)
 #print(Y_val)
 
