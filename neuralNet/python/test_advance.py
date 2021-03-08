@@ -1,42 +1,94 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 import random
-
-from torch import nn
-import torch.nn.functional as F
+import torch
+import pandas as pd
 from torch.autograd import Variable
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import Dataset, DataLoader
 
-#get test and traning data
-def get_part_data(data, ratio, A):
-    leng = len(data)
-    length = int(len(data)*ratio)
-    int_valid = np.arange(1 + A, length + A, 1)
-    int_learn = np.concatenate([np.arange(length + A, leng, 1),np.arange(1, A + 1, 1)])
-    traning_data = data[int_valid]
-    learn_data = data[int_learn]
-    return traning_data, learn_data
+class ToTensor(object):
+    """Convert ndarrays in sample to Tensors."""
 
-#get data batch
-def batch_gen(X, Y, batch_size):
-    idx = np.random.randint(X.shape[0], size=batch_size)
-    X_batch = X[idx]
-    Y_batch = Y[idx]
-    return Variable(torch.FloatTensor(X_batch)), Variable(torch.LongTensor(Y_batch))
+    def __call__(self, sample):
+        lat, lng, country, target = sample['lat'], sample['lng'], sample['country'], sample['target']
+        return {'lat': torch.from_numpy(lat),
+                'lng': torch.from_numpy(lng),
+                'target': torch.from_numpy(target)}
 
-def data_set_gen(X, Y, s):
-    j = int(s/2.0)
-    result = np.asarray(np.where(Y == 1))
-    idx = np.random.randint(X.shape[0], size = j)
-    np.random.shuffle(result)
-    target_idx = result[:j]
-    i = np.concatenate((idx, target_idx[0]))
+class CityDataset(Dataset):
+    """Face Landmarks dataset."""
 
-    X_set = X[i]
-    Y_set = Y[i]
-    #print(Y_set.shape[0])
-    return X_set, Y_set
-#read data
+    def __init__(self, csv_file, transform=None):
+        self.csv_file = pd.read_csv(csv_file)
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.csv_file)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        img_name = os.path.join(self.csv_file.iloc[idx, 0])
+        image = io.imread(img_name)
+        lat = self.csv_file.iloc[idx, 1:]
+        lat = np.array([landmarks])
+        lat = landmarks.astype('float').reshape(-1, 2)
+        sample = {'lat': lat, 'lng': lng, 'target' : target}
+
+        if self.transform:
+            sample = self.transform(sample)
+
+        return sample
+
+class ner_net(nn.Module):
+    def __init__(self):
+        super(ner_net, self).__init__()
+        D_in, H1, H2, H3,H4, H5, H6, H7, D_out = 2, 10, 15, 15, 10, 9, 7, 5, 2
+        self.fc1 = torch.nn.Linear(D_in, H1)
+        self.fc2 = torch.nn.Linear(H1, H2)
+        self.fc3 = torch.nn.Linear(H2, H3)
+        self.fc4 = torch.nn.Linear(H3, H4)
+        self.fc5 = torch.nn.Linear(H4, H5)
+        self.fc6 = torch.nn.Linear(H5, H6)
+        self.fc7 = torch.nn.Linear(H6, H7)
+        self.fc8 = torch.nn.Linear(H7, D_out)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        x = F.relu(self.fc5(x))
+        x = F.relu(self.fc6(x))
+        x = F.relu(self.fc7(x))
+        x = self.fc8(x)
+        return F.log_softmax(x)
+
+
+
+
+
+transformed_dataset = CityDataset(csv_file='worldcities.csv',
+                                           root_dir='',
+                                           transform=transforms.Compose([
+                                               ToTensor()
+                                           ]))
+
+dataloader = DataLoader(transformed_dataset, batch_size=4, shuffle=True, num_workers=4)
+
+print("transformed_dataset = ", transformed_dataset)
+print("dataloader = ", dataloader)
+
+
+
+
+
+
+
 #sFile  = open("worldcities.csv", 'r')
 
 with open("worldcities.csv", 'r') as sFile:
@@ -60,7 +112,6 @@ with open("worldcities.csv", 'r') as sFile:
             else:
                 target.append('0')
 
-#sFile.close()
 #data preparation
 ratio = 0.2
 lat_np = np.array(lat)
@@ -106,23 +157,8 @@ for j in range(K):
 #create neural net
 batch_size=1500
 D_in, H1, H2, H3,H4, H5, H6, H7, H8, D_out = 2, 10, 15, 15, 10, 9, 7, 5,10, 2
-net = torch.nn.Sequential(
-    torch.nn.Linear(D_in, H1),
-    torch.nn.ReLU(),
-    torch.nn.Linear(H1, H2),
-    torch.nn.ReLU(),
-    torch.nn.Linear(H2, H3),
-    torch.nn.ReLU(),
-    torch.nn.Linear(H3, H4),
-    torch.nn.ReLU(),
-    torch.nn.Linear(H4, H5),
-    torch.nn.ReLU(),
-    torch.nn.Linear(H5, H6),
-    torch.nn.ReLU(),
-    torch.nn.Linear(H6, H7),
-    torch.nn.ReLU(),
-    torch.nn.Linear(H7, D_out)
-)
+net = ner_net()
+
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
 
 Nn = 50
@@ -132,11 +168,14 @@ losses = []
 accuracy_test = []
 accuracy_learn = []
 loss = 1
+"""
 for t in range(500):
     x_batch, y_batch = batch_gen(X, Y, batch_size)
+
     y_pred = net(x_batch)
 
     loss = loss_fn(y_pred, y_batch)/batch_size
+    print("loss =", loss )
     losses.append(loss.item())
 
     y_predicted_test = net(torch.tensor(X_test, dtype=torch.float32))
@@ -205,3 +244,4 @@ plt.xlim(xx.min(), xx.max())
 plt.ylim(yy.min(), yy.max())
 
 plt.show()
+"""
