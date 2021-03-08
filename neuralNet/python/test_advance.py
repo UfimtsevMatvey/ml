@@ -12,16 +12,13 @@ from torch.utils.data import Dataset, DataLoader
 
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
-
     def __call__(self, sample):
-        lat, lng, country, target = sample['lat'], sample['lng'], sample['country'], sample['target']
+        lat, lng, target = sample['lat'], sample['lng'], sample['target']
         return {'lat': torch.from_numpy(lat),
                 'lng': torch.from_numpy(lng),
                 'target': torch.from_numpy(target)}
 
 class CityDataset(Dataset):
-    """Face Landmarks dataset."""
-
     def __init__(self, csv_file, transform=None):
         self.csv_file = pd.read_csv(csv_file)
         self.transform = transform
@@ -32,11 +29,20 @@ class CityDataset(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        img_name = os.path.join(self.csv_file.iloc[idx, 0])
-        image = io.imread(img_name)
-        lat = self.csv_file.iloc[idx, 1:]
-        lat = np.array([landmarks])
-        lat = landmarks.astype('float').reshape(-1, 2)
+        lat = self.csv_file.iloc[idx, 0]
+        lng = self.csv_file.iloc[idx, 1]
+        country = self.csv_file.iloc[idx, 2]
+        target = self.csv_file.iloc[idx, 3]
+        lat = np.array([lat])
+        lat = lat.astype('float')
+        lng = np.array([lng])
+        lng = lng.astype('float')
+        target = np.array([target])
+        target = target.astype('float')
+        if(country == "Russia"):
+            target = np.array([1])
+        else:
+            target = np.array([0])
         sample = {'lat': lat, 'lng': lng, 'target' : target}
 
         if self.transform:
@@ -69,19 +75,11 @@ class ner_net(nn.Module):
         return F.log_softmax(x)
 
 
+city_dataset = CityDataset(csv_file='worldcities.csv', transform=transforms.Compose([ToTensor()]))
 
-
-
-transformed_dataset = CityDataset(csv_file='worldcities.csv',
-                                           root_dir='',
-                                           transform=transforms.Compose([
-                                               ToTensor()
-                                           ]))
-
-dataloader = DataLoader(transformed_dataset, batch_size=4, shuffle=True, num_workers=4)
-
-print("transformed_dataset = ", transformed_dataset)
-print("dataloader = ", dataloader)
+for i in range(len(city_dataset)):
+    sample = city_dataset[i]
+#   print(i, sample['lat'], sample['lng'], sample['target'])
 
 
 
