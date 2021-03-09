@@ -78,7 +78,9 @@ class ner_net(nn.Module):
 def subset_ind(dataset, ratio: float):
     return np.random.choice(len(dataset), size=int(ratio*len(dataset)),replace=False)
 
+device=torch.device('cuda')
 city_dataset = CityDataset(csv_file='worldcities.csv', transform=transforms.Compose([ToTensor()]))
+#city_dataset = city_dataset.to(device)
 val_inds = subset_ind(city_dataset, 0.2)
 
 val_city_dataset = Subset(city_dataset, val_inds)
@@ -91,7 +93,7 @@ val_data = DataLoader(val_city_dataset, batch_size, shuffle=False, num_workers=0
 
 #create neural net
 net = ner_net()
-
+net.to(device, torch.float32)
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
 
 learning_rate = 2*1e-3
@@ -111,8 +113,8 @@ for epoch in range(50):
     for batch in learn_data:
         X_batch = batch["cord"]
         y_batch = batch["target"].reshape(-1).type(torch.LongTensor)
-        print(i)
-        i = i + 1
+        X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+
         y_pred = net(X_batch)
         loss = loss_fn(y_pred, y_batch)/batch_size
         ep_losses.append(loss.item())
@@ -123,13 +125,14 @@ for epoch in range(50):
     for batch in val_data:
         X_batch =batch["cord"]
         y_batch =batch["target"].reshape(-1).type(torch.LongTensor)
+        X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
         y_pred = net(X_batch)
 
         loss = loss_fn(y_pred, y_batch)/batch_size
         ep_val_losses.append(loss.item())
         _, predicted = torch.max(y_pred, 1)
-        ep_val_accuracy.append(torch.mean((y_batch == predicted).type(torch.float).clone().detach()))  
+        ep_val_accuracy.append(torch.mean((y_batch == predicted).type(torch.float).clone().detach()).item())  
     val_losses.append(np.mean(ep_val_losses))
     val_accuracy.append(np.mean(ep_val_accuracy))
     losses.append(np.mean(ep_losses))
