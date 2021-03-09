@@ -8,15 +8,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
     def __call__(self, sample):
-        lat, lng, target = sample['lat'], sample['lng'], sample['target']
-        return {'lat': torch.from_numpy(lat),
-                'lng': torch.from_numpy(lng),
-                'target': torch.from_numpy(target)}
+        target, cord = sample['target'], sample['cord']
+        return {'target': torch.from_numpy(target),
+                'cord': torch.from_numpy(cord)}
 
 class CityDataset(Dataset):
     def __init__(self, csv_file, transform=None):
@@ -34,16 +33,18 @@ class CityDataset(Dataset):
         country = self.csv_file.iloc[idx, 2]
         target = self.csv_file.iloc[idx, 3]
         lat = np.array([lat])
-        lat = lat.astype('float')
+        lat = lat.astype('float32')
         lng = np.array([lng])
-        lng = lng.astype('float')
+        lng = lng.astype('float32')
         target = np.array([target])
-        target = target.astype('float')
+        target = target.astype('float32')
+        cord = np.array([lat[0], lng[0]])
+        cord = cord.astype('float32')
         if(country == "Russia"):
             target = np.array([1])
         else:
             target = np.array([0])
-        sample = {'lat': lat, 'lng': lng, 'target' : target}
+        sample = {'target' : target, 'cord' : cord}
 
         if self.transform:
             sample = self.transform(sample)
@@ -72,174 +73,73 @@ class ner_net(nn.Module):
         x = F.relu(self.fc6(x))
         x = F.relu(self.fc7(x))
         x = self.fc8(x)
-        return F.log_softmax(x)
+        return x
 
+def subset_ind(dataset, ratio: float):
+    return np.random.choice(len(dataset), size=int(ratio*len(dataset)),replace=False)
 
 city_dataset = CityDataset(csv_file='worldcities.csv', transform=transforms.Compose([ToTensor()]))
+val_inds = subset_ind(city_dataset, 0.2)
 
-for i in range(len(city_dataset)):
-    sample = city_dataset[i]
-#   print(i, sample['lat'], sample['lng'], sample['target'])
-
-
-
-
-
+val_city_dataset = Subset(city_dataset, val_inds)
+learn_city_dataset = Subset(city_dataset, [i for i in range(len(city_dataset)) if i not in val_inds])
+batch_size = 10
+learn_data = DataLoader(learn_city_dataset, batch_size, shuffle=True, num_workers=0)
+val_data = DataLoader(val_city_dataset, batch_size, shuffle=False, num_workers=0)
 
 
-#sFile  = open("worldcities.csv", 'r')
-
-with open("worldcities.csv", 'r') as sFile:
-    str_file = sFile.readlines()
-    i = len(str_file)
-    lat = []
-    lng = []
-    country = []
-    target = []
-    for k in range(i):
-        if(str_file[k] != '\n'):
-            temp = str_file[k].replace(' ', '')
-            temp = temp.replace(',', ' ')
-            temp = temp.replace('\n', '')
-            words = temp.split(' ')
-            lat.append(words[0])
-            lng.append(words[1])
-            country.append(words[2])
-            if(words[2] == "Russia"):
-                target.append('1')
-            else:
-                target.append('0')
-
-#data preparation
-ratio = 0.2
-lat_np = np.array(lat)
-lng_np = np.array(lng)
-
-leng = len(lng_np)
-length = int(len(lng_np)*ratio)
-A = random.randint(2, leng - length - 1)
-
-ind = np.arange(1, leng, 1)
-np.random.shuffle(ind)
-ind_learn, ind_test = ind[length:], ind[:length]
-#print(ind_learn)
-
-target_np = np.array(target)
-lat_test, lat_learn = lat_np[ind_test], lat_np[ind_learn]
-lng_test, lng_learn = lng_np[ind_test], lng_np[ind_learn]
-target_test, target_learn = target_np[ind_test], target_np[ind_learn]
-
-N = len(lat_learn)
-N_test = len(lat_test)
-
-D = 2
-K = 2
-X = np.zeros((N * K, D))
-X_test = np.zeros((N_test * K, D))
-Y = np.zeros(N * K, dtype='uint8')
-Y_test = np.zeros(N_test * K, dtype='uint8')
-
-for j in range(K):
-    ix = range(int(N/2) * j,int(N/2) * (j + 1))
-    ix_test = range(int(N_test/2) * j,int(N_test/2) * (j + 1))
-    X[ix] = np.c_[lng_learn[ix], lat_learn[ix]]
-    X_test[ix_test] = np.c_[lng_test[ix_test], lat_test[ix_test]]
-    Y[ix] = target_learn[ix]
-    Y_test[ix_test] = target_test[ix_test]
-
-#plt.figure(figsize=(10, 8))
-
-#plt.scatter(X[:, 0], X[:, 1], c=Y, s=40, cmap=plt.cm.rainbow)
-#plt.show()
 
 #create neural net
-batch_size=1500
-D_in, H1, H2, H3,H4, H5, H6, H7, H8, D_out = 2, 10, 15, 15, 10, 9, 7, 5,10, 2
 net = ner_net()
 
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
 
-Nn = 50
-learning_rate = 1e-3
+learning_rate = 2*1e-3
 optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
-losses = []
-accuracy_test = []
-accuracy_learn = []
+
 loss = 1
-"""
-for t in range(500):
-    x_batch, y_batch = batch_gen(X, Y, batch_size)
+losses = []
+val_losses = []
+val_accuracy = []
+train_accuracy = []
+i = 0
+for epoch in range(50):
+    ep_losses = []
+    ep_val_losses = []
+    ep_val_accuracy = []
+    ep_train_accuracy = []
+    for batch in learn_data:
+        X_batch = batch["cord"]
+        y_batch = batch["target"].reshape(-1).type(torch.LongTensor)
+        print(i)
+        i = i + 1
+        y_pred = net(X_batch)
+        loss = loss_fn(y_pred, y_batch)/batch_size
+        ep_losses.append(loss.item())
 
-    y_pred = net(x_batch)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    for batch in val_data:
+        X_batch =batch["cord"]
+        y_batch =batch["target"].reshape(-1).type(torch.LongTensor)
 
-    loss = loss_fn(y_pred, y_batch)/batch_size
-    print("loss =", loss )
-    losses.append(loss.item())
+        y_pred = net(X_batch)
 
-    y_predicted_test = net(torch.tensor(X_test, dtype=torch.float32))
-    y_predicted_learn = net(torch.tensor(X, dtype=torch.float32))
-
-    _, predicted_y_test = torch.max(y_predicted_test, 1)
-    _, predicted_y_learn = torch.max(y_predicted_learn, 1)
-
-    Y_test = torch.tensor(Y_test, dtype=torch.float)
-    Y_learn = torch.tensor(Y, dtype=torch.float)
-    accuracy_learn_data = torch.mean((Y_learn == predicted_y_learn).type(torch.float).clone().detach())
-    accuracy_learn.append(accuracy_learn_data.item())
-
-    accuracy_test_data = torch.mean((Y_test == predicted_y_test).type(torch.float).clone().detach())
-    accuracy_test.append(accuracy_test_data.item())
-
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+        loss = loss_fn(y_pred, y_batch)/batch_size
+        ep_val_losses.append(loss.item())
+        _, predicted = torch.max(y_pred, 1)
+        ep_val_accuracy.append(torch.mean((y_batch == predicted).type(torch.float).clone().detach()))  
+    val_losses.append(np.mean(ep_val_losses))
+    val_accuracy.append(np.mean(ep_val_accuracy))
+    losses.append(np.mean(ep_losses))
 
 
-y_predicted_test = net(torch.tensor(X_test, dtype=torch.float32))
-y_predicted_learn = net(torch.tensor(X, dtype=torch.float32))
-#print(type(y_predicted))
-#print("y_predicted = ", y_predicted)
-_, predicted_y_test = torch.max(y_predicted_test, 1)
-_, predicted_y_learn = torch.max(y_predicted_learn, 1)
-Y_test = torch.tensor(Y_test, dtype=torch.float)
-Y = torch.tensor(Y, dtype=torch.float)
-
-#print("y_val = ", Y)
-#print("y_pred = ", predicted_y_test)
-
-accuracy_test_data = torch.mean((Y_test == predicted_y_test).type(torch.float).clone().detach())
-print("Test accuracy: %.5f" % accuracy_test_data)
-#Accurancy on traning data
-accuracy_traning_data = torch.mean((Y == predicted_y_learn).type(torch.float).clone().detach())
-print("Traning accuracy: %.5f" % accuracy_traning_data)
-#print losses
 plt.plot(losses)
-plt.plot(accuracy_test)
-plt.plot(accuracy_learn)
-#print(y_predicted)
-#print(Y_val)
-
-#print final result
-h = 1
-x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
-
-xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
-                     np.arange(y_min, y_max, h))
-grid_tensor = torch.FloatTensor(np.c_[xx.ravel(), yy.ravel()])
-
-Z = net(torch.autograd.Variable(grid_tensor))
-Z = Z.data.numpy()
-Z = np.argmax(Z, axis=1)
-Z = Z.reshape(xx.shape)
-
-plt.figure(figsize=(10, 8))
-
-plt.contourf(xx, yy, Z, cmap=plt.cm.rainbow, alpha=0.3)
-plt.scatter(X[:, 0], X[:, 1], c=Y, s=40, cmap=plt.cm.rainbow)
-
-plt.xlim(xx.min(), xx.max())
-plt.ylim(yy.min(), yy.max())
-
+plt.plot(val_losses)
+plt.plot(val_accuracy)
+plt.legend(["traing losses", "validation losses", "validation accuracy"], loc ="lower right")
+plt.xlabel('$epoch$')
 plt.show()
-"""
+
+print(val_accuracy)
