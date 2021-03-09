@@ -131,7 +131,6 @@ for t in range(500):
     x_batch, y_batch = batch_gen(X, Y, batch_size)
 
     y_pred = net(x_batch)
-
     loss = loss_fn(y_pred, y_batch)/batch_size
     losses.append(loss.item())
 
