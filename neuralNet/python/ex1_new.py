@@ -122,6 +122,7 @@ net = ner_net()
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
 
 learning_rate = 1e-3
+l_lambda = 0.001
 optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
 losses = []
 accuracy_test = []
@@ -131,8 +132,13 @@ for t in range(500):
     x_batch, y_batch = batch_gen(X, Y, batch_size)
 
     y_pred = net(x_batch)
+
     loss = loss_fn(y_pred, y_batch)/batch_size
+    
+    norm = sum(p.pow(2.0).sum() for p in net.parameters())
+    loss = loss + l_lambda*norm
     losses.append(loss.item())
+
 
     y_predicted_test = net(torch.tensor(X_test, dtype=torch.float32))
     y_predicted_learn = net(torch.tensor(X, dtype=torch.float32))
