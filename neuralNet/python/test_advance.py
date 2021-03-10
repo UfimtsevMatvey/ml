@@ -31,9 +31,9 @@ class CityDataset(Dataset):
         lng = self.csv_file.iloc[idx, 1]
         country = self.csv_file.iloc[idx, 2]
         lat = np.array([lat])
-        lat = lat.astype('float32')
+        lat = lat.astype('float32')/180.
         lng = np.array([lng])
-        lng = lng.astype('float32')
+        lng = lng.astype('float32')/360.
         cord = np.array([lat[0], lng[0]])
         cord = cord.astype('float32')
         if(country == "Russia"):
@@ -78,12 +78,12 @@ def subset_ind(dataset, ratio: float):
 #device=torch.device('cuda')
 city_dataset = CityDataset(csv_file='worldcities.csv', transform=transforms.Compose([ToTensor()]))
 #city_dataset = city_dataset.to(device)
-val_inds = subset_ind(city_dataset, 0.3)
+val_inds = subset_ind(city_dataset, 0.2)
 
 val_city_dataset = Subset(city_dataset, val_inds)
 learn_city_dataset = Subset(city_dataset, [i for i in range(len(city_dataset)) if i not in val_inds])
-batch_size = 3000
-learn_data = DataLoader(learn_city_dataset, batch_size, shuffle=False, num_workers=0)
+batch_size = 2000
+learn_data = DataLoader(learn_city_dataset, batch_size, shuffle=True, num_workers=0)
 val_data = DataLoader(val_city_dataset, batch_size, shuffle=False, num_workers=0)
 data = DataLoader(city_dataset, batch_size = len(city_dataset), shuffle=False, num_workers=0)
 for batch in data:
@@ -105,9 +105,9 @@ for batch in datav:
 net = ner_net()
 #net.to(device, torch.float32)
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
+soft = torch.nn.Softmax()
 
-
-learning_rate = 1e-2
+learning_rate = 1e-1
 optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
 
 loss = 1
@@ -116,7 +116,8 @@ val_losses = []
 val_accuracy = []
 train_accuracy = []
 i = 0
-l_lambda = 0.001
+l_lambda = 0.01
+j = 0
 n_epoch = 100
 for epoch in range(n_epoch):
     ep_losses = []
@@ -126,19 +127,26 @@ for epoch in range(n_epoch):
     for batch in learn_data:
         y_batch, X_batch = batch
         #X_batch = batch["cord"]
-        y_batch = y_batch.reshape(-1).type(torch.LongTensor)
+        y_batch = y_batch.type(torch.LongTensor)
         #X_batch, y_batch = X_batch.to(device), y_batch.to(device)
         #print(y_batch)
+        
         y_pred = net(X_batch)
-        #for i in range(len(y_batch)):
-        #    if(y_pred[i][0] > 0.5 and y_batch[i] == 0):
-        #        y_pred[i][1] = -10*y_pred[i][1]
-        #        y_pred[i][0] = 10*y_pred[i][0]
-        print(y_pred[1])
-        print(y_batch[1])
-        loss = loss_fn(y_pred, y_batch)/batch_size
-        ep_losses.append(loss.item())
         _, predicted = torch.max(y_pred, 1)
+        j = 0
+        for i in range(len(y_batch)):
+            if(predicted[i] == 1 and y_batch[i] == 0):
+                j = j + i
+        #print(y_pred)
+        #print(y_batch)
+        loss = loss_fn(y_pred, y_batch.squeeze())/batch_size
+        #norm = sum(p.pow(2.0).sum() for p in net.parameters())
+        #loss = loss + norm*l_lambda
+        loss = loss + j*l_lambda
+        ep_losses.append(loss.item())
+        
+        #print(predicted)
+        #print(y_pred)
         ep_train_accuracy.append(torch.mean((y_batch == predicted).type(torch.float).clone().detach()).item())  
         optimizer.zero_grad()
         loss.backward()
@@ -147,10 +155,10 @@ for epoch in range(n_epoch):
         for batch in val_data:
             y_batch, X_batch = batch
             #X_batch =batch["cord"]
-            y_batch = y_batch.reshape(-1).type(torch.LongTensor)
+            y_batch = y_batch.type(torch.LongTensor)
             #X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             y_pred = net(X_batch)
-            loss = loss_fn(y_pred, y_batch)/batch_size
+            loss = loss_fn(y_pred, y_batch.squeeze())/batch_size
             ep_val_losses.append(loss.item())
             _, predicted = torch.max(y_pred, 1)
             ep_val_accuracy.append(torch.mean((y_batch == predicted).type(torch.float).clone().detach()).item())
@@ -165,7 +173,9 @@ for epoch in range(n_epoch):
     print("epoch train loss     = ", np.mean(ep_losses))
     print("epoch train accuracy = ", np.mean(ep_train_accuracy))
     print("learning_rate        = ", learning_rate)
-
+    if((np.mean(ep_losses) < 0.14) and (learning_rate >= 1e-2 - 0.00001)):
+        learning_rate = 1e-2
+        optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
     if((np.mean(ep_losses) < 0.09) and (learning_rate >= 5*1e-3 - 0.00001)):
         learning_rate = 1e-3
         optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
@@ -191,12 +201,13 @@ plt.legend(["traing losses", "validation losses", "validation accuracy"], loc ="
 plt.xlabel('$epoch$')
 #device=torch.device('cuda')
 #print final result
-h = 1
+h = 1/180.
 X = X_v
 Y = Y_v
 x_min, x_max = X[:, 1].min() - 1, X[:, 1].max() + 1
 y_min, y_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-
+print(x_min, x_max)
+print(y_min, y_max)
 xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
                      np.arange(y_min, y_max, h))
 grid_tensor = torch.FloatTensor(np.c_[xx.ravel(), yy.ravel()])
@@ -213,7 +224,7 @@ plt.figure(figsize=(10, 8))
 plt.contourf(xx, yy, Z, cmap=plt.cm.rainbow, alpha=0.3)
 plt.scatter(X[:, 1], X[:, 0], c=Y, s=40, cmap=plt.cm.rainbow)
 
-plt.xlim(xx.min(), xx.max())
-plt.ylim(yy.min(), yy.max())
+plt.xlim(-0.5, 0.5)
+plt.ylim(-0.5, 0.5)
 
 plt.show()

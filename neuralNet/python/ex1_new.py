@@ -32,7 +32,7 @@ class ner_net(nn.Module):
         x = F.relu(self.fc6(x))
         x = F.relu(self.fc7(x))
         x = self.fc8(x)
-        return F.log_softmax(x)
+        return x
 
 #get test and traning data
 def get_part_data(data, ratio, A):
