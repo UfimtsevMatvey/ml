@@ -30,17 +30,19 @@ class CityDataset(Dataset):
         lat = self.csv_file.iloc[idx, 0]
         lng = self.csv_file.iloc[idx, 1]
         country = self.csv_file.iloc[idx, 2]
+        #target = self.csv_file.iloc[idx, 3]
+        #target = np.array([target])
+        #target = target.astype('int')
         lat = np.array([lat])
-        lat = lat.astype('float32')/180.
+        lat = lat.astype('float32')
         lng = np.array([lng])
-        lng = lng.astype('float32')/360.
+        lng = lng.astype('float32')
         cord = np.array([lat[0], lng[0]])
         cord = cord.astype('float32')
         if(country == "Russia"):
-            target = np.array([1])
+            target = np.array(1)
         else:
-            target = np.array([0])
-        #sample = {'target' : target, 'cord' : cord}
+            target = np.array(0)
         sample = target, cord
         if self.transform:
             sample = self.transform(sample)
@@ -50,7 +52,7 @@ class CityDataset(Dataset):
 class ner_net(nn.Module):
     def __init__(self):
         super(ner_net, self).__init__()
-        D_in, H1, H2, H3,H4, H5, H6, H7, H8, D_out = 2, 15, 30, 30, 20, 20, 15, 10, 10, 2
+        D_in, H1, H2, H3, H4, H5, H6, H7, H8, D_out = 2, 10, 15, 15, 12, 10, 9, 8, 6, 2
         self.fc1 = torch.nn.Linear(D_in, H1)
         self.fc2 = torch.nn.Linear(H1, H2)
         self.fc3 = torch.nn.Linear(H2, H3)
@@ -78,11 +80,11 @@ def subset_ind(dataset, ratio: float):
 #device=torch.device('cuda')
 city_dataset = CityDataset(csv_file='worldcities.csv', transform=transforms.Compose([ToTensor()]))
 #city_dataset = city_dataset.to(device)
-val_inds = subset_ind(city_dataset, 0.2)
+val_inds = subset_ind(city_dataset, 0.4)
 
 val_city_dataset = Subset(city_dataset, val_inds)
 learn_city_dataset = Subset(city_dataset, [i for i in range(len(city_dataset)) if i not in val_inds])
-batch_size = 2000
+batch_size = 1000
 learn_data = DataLoader(learn_city_dataset, batch_size, shuffle=True, num_workers=0)
 val_data = DataLoader(val_city_dataset, batch_size, shuffle=False, num_workers=0)
 data = DataLoader(city_dataset, batch_size = len(city_dataset), shuffle=False, num_workers=0)
@@ -107,18 +109,18 @@ net = ner_net()
 loss_fn = torch.nn.CrossEntropyLoss(size_average=False)
 soft = torch.nn.Softmax()
 
-learning_rate = 1e-1
-optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
-
+learning_rate = 1e-2
+optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate)
+print(batch_size)
 loss = 1
 losses = []
 val_losses = []
 val_accuracy = []
 train_accuracy = []
 i = 0
-l_lambda = 0.01
-j = 0
-n_epoch = 100
+l_lambda = 0.02
+l = 0
+n_epoch = 30
 for epoch in range(n_epoch):
     ep_losses = []
     ep_val_losses = []
@@ -133,24 +135,55 @@ for epoch in range(n_epoch):
         
         y_pred = net(X_batch)
         _, predicted = torch.max(y_pred, 1)
-        j = 0
+        l = 0
         for i in range(len(y_batch)):
-            if(predicted[i] == 1 and y_batch[i] == 0):
-                j = j + i
-        #print(y_pred)
-        #print(y_batch)
-        loss = loss_fn(y_pred, y_batch.squeeze())/batch_size
-        #norm = sum(p.pow(2.0).sum() for p in net.parameters())
-        #loss = loss + norm*l_lambda
-        loss = loss + j*l_lambda
+            if(predicted[i] == 0 and  y_batch[i] == 1):
+                l = l + l_lambda
+        loss = loss_fn(y_pred, y_batch.squeeze())/batch_size + l
+        
         ep_losses.append(loss.item())
         
-        #print(predicted)
-        #print(y_pred)
-        ep_train_accuracy.append(torch.mean((y_batch == predicted).type(torch.float).clone().detach()).item())  
+        ep_train_accuracy.append(torch.mean((y_batch.squeeze() == predicted).type(torch.float).clone().detach()).item())  
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        #
+        """
+        h = 1
+
+        X = X_batch.numpy()
+        #print(X)
+        Y = predicted.numpy()
+        #print(Y)
+        x_min, x_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+        y_min, y_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+        #print(x_min, x_max)
+        #print(y_min, y_max)
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
+                            np.arange(y_min, y_max, h))
+        grid_tensor = torch.FloatTensor(np.c_[xx.ravel(), yy.ravel()])
+        
+        Z = net(torch.autograd.Variable(grid_tensor))
+        #_, Z = torch.max(Z, 1)
+        #device=torch.device('cpu')
+        #Z = Z.to(device)
+        #Z = Z.squeeze()
+        Z = Z.data.numpy()
+        Z = np.argmax(Z, axis=1)
+        
+        Z = Z.reshape(xx.shape)
+        #print(Z)
+
+        plt.figure(figsize=(10, 8))
+
+        plt.contourf(xx, yy, Z, cmap=plt.cm.rainbow, alpha=0.3)
+        plt.scatter(X[:, 1], X[:, 0], c=Y, s=40, cmap=plt.cm.rainbow)
+
+        plt.xlim(xx.min(), xx.max())
+        plt.ylim(yy.min(), yy.max())
+
+        """
+        #
     with torch.no_grad():
         for batch in val_data:
             y_batch, X_batch = batch
@@ -161,8 +194,8 @@ for epoch in range(n_epoch):
             loss = loss_fn(y_pred, y_batch.squeeze())/batch_size
             ep_val_losses.append(loss.item())
             _, predicted = torch.max(y_pred, 1)
-            ep_val_accuracy.append(torch.mean((y_batch == predicted).type(torch.float).clone().detach()).item())
-
+            ep_val_accuracy.append(torch.mean((y_batch.squeeze() == predicted).type(torch.float).clone().detach()).item())
+    plt.show()
     val_losses.append(np.mean(ep_val_losses))
     val_accuracy.append(np.mean(ep_val_accuracy))
     train_accuracy.append(np.mean(ep_train_accuracy))
@@ -173,18 +206,16 @@ for epoch in range(n_epoch):
     print("epoch train loss     = ", np.mean(ep_losses))
     print("epoch train accuracy = ", np.mean(ep_train_accuracy))
     print("learning_rate        = ", learning_rate)
-    if((np.mean(ep_losses) < 0.14) and (learning_rate >= 1e-2 - 0.00001)):
-        learning_rate = 1e-2
-        optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
-    if((np.mean(ep_losses) < 0.09) and (learning_rate >= 5*1e-3 - 0.00001)):
+    if((np.mean(ep_losses) < 0.2) and (learning_rate >= 5*1e-3 - 0.00001)):
         learning_rate = 1e-3
-        optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
+        optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate)
     if((np.mean(ep_losses) < 0.05) and (learning_rate >= 1e-3 - 0.000001)):
         learning_rate = 1e-4
-        optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
-    if((np.mean(ep_losses) < 0.02) and (learning_rate >= 1e-5)):
+        optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate)
+    if((np.mean(ep_losses) < 0.03) and (learning_rate >= 1e-5)):
         learning_rate = 1e-5
-        optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
+        optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate)
+    
 
 _, predicted_y_test = torch.max(net(X_v), 1)
 _, predicted_y_learn = torch.max(net(X_l), 1)
@@ -194,37 +225,33 @@ accuracy_val_data = torch.mean((Y_v == predicted_y_test).type(torch.float).clone
 print("train accuracy = ", accuracy_learn_data.data.numpy())
 print("valid accuracy = ", accuracy_val_data.data.numpy())
 
+
 plt.plot(losses)
 plt.plot(val_losses)
-plt.plot(val_accuracy)
-plt.legend(["traing losses", "validation losses", "validation accuracy"], loc ="lower right")
+plt.legend(["traing losses", "validation losses"], loc ="lower right")
 plt.xlabel('$epoch$')
-#device=torch.device('cuda')
-#print final result
-h = 1/180.
-X = X_v
-Y = Y_v
-x_min, x_max = X[:, 1].min() - 1, X[:, 1].max() + 1
-y_min, y_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-print(x_min, x_max)
-print(y_min, y_max)
-xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
-                     np.arange(y_min, y_max, h))
-grid_tensor = torch.FloatTensor(np.c_[xx.ravel(), yy.ravel()])
-
-Z = net(torch.autograd.Variable(grid_tensor))
-#device=torch.device('cpu')
-#Z = Z.to(device)
-Z = Z.data.numpy()
-Z = np.argmax(Z, axis=1)
-Z = Z.reshape(xx.shape)
-
-plt.figure(figsize=(10, 8))
-
-plt.contourf(xx, yy, Z, cmap=plt.cm.rainbow, alpha=0.3)
-plt.scatter(X[:, 1], X[:, 0], c=Y, s=40, cmap=plt.cm.rainbow)
-
-plt.xlim(-0.5, 0.5)
-plt.ylim(-0.5, 0.5)
-
 plt.show()
+
+plt.plot(val_accuracy)
+plt.legend(["validation accuracy"], loc ="lower right")
+plt.xlabel('$epoch$')
+plt.show()
+
+with torch.no_grad():
+    h = 1
+
+    X = X_v.numpy()
+    Y = Y_v.numpy()
+    x_min, x_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+    y_min, y_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+
+    y_0 = net(X_v)
+    _, y_pred = torch.max(y_0, 1)
+    Y = y_pred.numpy()
+
+    plt.scatter(X[:, 1], X[:, 0], c=Y, s=40, cmap=plt.cm.rainbow)
+
+    plt.xlim(x_min, x_max)
+    plt.ylim(y_min, y_max)
+
+    plt.show()
