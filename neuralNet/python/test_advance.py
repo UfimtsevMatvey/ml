@@ -80,11 +80,11 @@ def subset_ind(dataset, ratio: float):
 #device=torch.device('cuda')
 city_dataset = CityDataset(csv_file='worldcities.csv', transform=transforms.Compose([ToTensor()]))
 #city_dataset = city_dataset.to(device)
-val_inds = subset_ind(city_dataset, 0.4)
+val_inds = subset_ind(city_dataset, 0.3)
 
 val_city_dataset = Subset(city_dataset, val_inds)
 learn_city_dataset = Subset(city_dataset, [i for i in range(len(city_dataset)) if i not in val_inds])
-batch_size = 1000
+batch_size = 60
 learn_data = DataLoader(learn_city_dataset, batch_size, shuffle=True, num_workers=0)
 val_data = DataLoader(val_city_dataset, batch_size, shuffle=False, num_workers=0)
 data = DataLoader(city_dataset, batch_size = len(city_dataset), shuffle=False, num_workers=0)
@@ -120,7 +120,7 @@ train_accuracy = []
 i = 0
 l_lambda = 0.02
 l = 0
-n_epoch = 30
+n_epoch = 18
 for epoch in range(n_epoch):
     ep_losses = []
     ep_val_losses = []
@@ -147,43 +147,6 @@ for epoch in range(n_epoch):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        #
-        """
-        h = 1
-
-        X = X_batch.numpy()
-        #print(X)
-        Y = predicted.numpy()
-        #print(Y)
-        x_min, x_max = X[:, 1].min() - 1, X[:, 1].max() + 1
-        y_min, y_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-        #print(x_min, x_max)
-        #print(y_min, y_max)
-        xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
-                            np.arange(y_min, y_max, h))
-        grid_tensor = torch.FloatTensor(np.c_[xx.ravel(), yy.ravel()])
-        
-        Z = net(torch.autograd.Variable(grid_tensor))
-        #_, Z = torch.max(Z, 1)
-        #device=torch.device('cpu')
-        #Z = Z.to(device)
-        #Z = Z.squeeze()
-        Z = Z.data.numpy()
-        Z = np.argmax(Z, axis=1)
-        
-        Z = Z.reshape(xx.shape)
-        #print(Z)
-
-        plt.figure(figsize=(10, 8))
-
-        plt.contourf(xx, yy, Z, cmap=plt.cm.rainbow, alpha=0.3)
-        plt.scatter(X[:, 1], X[:, 0], c=Y, s=40, cmap=plt.cm.rainbow)
-
-        plt.xlim(xx.min(), xx.max())
-        plt.ylim(yy.min(), yy.max())
-
-        """
-        #
     with torch.no_grad():
         for batch in val_data:
             y_batch, X_batch = batch
@@ -191,7 +154,12 @@ for epoch in range(n_epoch):
             y_batch = y_batch.type(torch.LongTensor)
             #X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             y_pred = net(X_batch)
-            loss = loss_fn(y_pred, y_batch.squeeze())/batch_size
+            _, predicted = torch.max(y_pred, 1)
+            l = 0
+            for i in range(len(y_batch)):
+                if(predicted[i] == 0 and  y_batch[i] == 1):
+                    l = l + l_lambda
+            loss = loss_fn(y_pred, y_batch.squeeze())/batch_size + l
             ep_val_losses.append(loss.item())
             _, predicted = torch.max(y_pred, 1)
             ep_val_accuracy.append(torch.mean((y_batch.squeeze() == predicted).type(torch.float).clone().detach()).item())
@@ -215,7 +183,7 @@ for epoch in range(n_epoch):
     if((np.mean(ep_losses) < 0.03) and (learning_rate >= 1e-5)):
         learning_rate = 1e-5
         optimizer = torch.optim.AdamW(net.parameters(), lr=learning_rate)
-    
+
 
 _, predicted_y_test = torch.max(net(X_v), 1)
 _, predicted_y_learn = torch.max(net(X_l), 1)
